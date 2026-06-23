@@ -13,7 +13,7 @@ data class RuleMatchResult(
     val captureGroups: List<String> = emptyList()
 ) {
     /** 获取最有价值的内容（优先捕获组第1个，其次完整匹配） */
-    val displayText: String get() = captureGroups.firstOrNull().ifEmpty { matchedText }
+    val displayText: String get() = captureGroups.firstOrNull() ?: matchedText
 }
 
 interface ForwardRepository {

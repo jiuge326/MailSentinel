@@ -13,14 +13,18 @@ import com.mailsentinel.core.database.dao.AccountDao
 import com.mailsentinel.core.network.ConnectionStateManager
 import com.mailsentinel.core.network.ImapClient
 import com.mailsentinel.core.parser.MimeParser
-import com.mailsentinel.data.repository.ForwardRepositoryImpl
-import com.mailsentinel.data.repository.MailRepositoryImpl
+import com.mailsentinel.domain.repository.ForwardRepository
+import com.mailsentinel.domain.model.ConnectionState
+import com.mailsentinel.domain.model.ForwardRule
 import com.mailsentinel.domain.model.MailMessage
+import com.mailsentinel.domain.model.RegexTarget
+import com.mailsentinel.domain.repository.RuleMatchResult
+import com.mailsentinel.core.regex.RegexMatcher
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicInteger
-import jakarta.mail.internet.MimeMessage
+import javax.mail.internet.MimeMessage
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -37,9 +41,9 @@ class MailSentinelService : Service() {
     @Inject lateinit var imapClient: ImapClient
     @Inject lateinit var mimeParser: MimeParser
     @Inject lateinit var connectionStateManager: ConnectionStateManager
+    @Inject lateinit var forwardRepository: ForwardRepository
 
-    // 通过 lazy / 手动获取 Repository 实例（Service 中 Hilt 注入有限制）
-    // 使用独立的 scope 管理每个账户的监听任务
+    // Service 中使用 IO 线程的独立 scope
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val listeningJobs = mutableMapOf<Long, Job>()
 
@@ -81,7 +85,7 @@ class MailSentinelService : Service() {
 
                     for (account in accounts) {
                         if (!account.isActive) continue
-                        if (listeningJobs[account.id]?.isActive == true) continue  // 已在监听，跳过
+                        if (listeningJobs[account.id]?.isActive == true) continue
 
                         listeningJobs[account.id] = launch {
                             listenAccount(account)
@@ -101,12 +105,12 @@ class MailSentinelService : Service() {
      * 单个账户的 IMAP IDLE 监听循环（自动重连）
      */
     private suspend fun listenAccount(account: com.mailsentinel.core.database.entity.AccountEntity) {
-        var retryDelay = 5L  // 初始重试间隔(秒)
+        var retryDelay = 5L
 
-        while (isActive) {
+        while (kotlin.coroutines.coroutineContext.isActive) {
             try {
                 Timber.d("开始监听账户: ${account.emailAddress}")
-                connectionStateManager.updateState(account.id, com.mailsentinel.domain.model.ConnectionState.CONNECTING)
+                connectionStateManager.updateState(account.id, ConnectionState.CONNECTING)
 
                 val password = account.password ?: ""
                 imapClient.observeNewMessages(
@@ -120,19 +124,17 @@ class MailSentinelService : Service() {
                         smtpPort = account.smtpPort.toInt(),
                         useSsl = true,
                         tokenType = account.tokenType ?: "password",
-                        connectionState = com.mailsentinel.domain.model.ConnectionState.CONNECTED
+                        connectionState = ConnectionState.CONNECTED
                     ),
                     password
                 ).collect { mimeMessage ->
-                    // 收到新邮件 → 解析正文 → 正则匹配 → 发通知
                     handleNewMessage(mimeMessage, account)
                 }
             } catch (e: Exception) {
                 Timber.e(e, "账户 ${account.emailAddress} 监听中断")
-                connectionStateManager.updateState(account.id, com.mailsentinel.domain.model.ConnectionState.ERROR)
+                connectionStateManager.updateState(account.id, ConnectionState.ERROR)
             }
 
-            // 指数退避重连（最大 5 分钟）
             delay(retryDelay * 1000L)
             retryDelay = minOf(retryDelay * 2, 300L)
         }
@@ -142,20 +144,22 @@ class MailSentinelService : Service() {
      * 处理新收到的邮件：解析 → 匹配规则 → 发通知
      */
     private suspend fun handleNewMessage(
-        mimeMessage: jakarta.mail.Message,
+        mimeMessage: javax.mail.Message,
         account: com.mailsentinel.core.database.entity.AccountEntity
     ) {
         try {
             val mimeMsg = mimeMessage as? MimeMessage ?: return
 
             // 1. 解析邮件正文
-            val (parsedBody, _) = mimeParser.parseMessage(mimeMsg) ?: return
+            val parsed = mimeParser.parseMessage(mimeMsg)
+            val parsedBody = parsed?.first ?: return
+            val _attachments = parsed.second ?: emptyList()
 
             // 2. 构建 MailMessage 对象用于规则匹配
-            val fromAddr = (mimeMsg.from?.firstOrNull() as? jakarta.mail.internet.InternetAddress)?.address ?: ""
+            val fromAddr = (mimeMsg.from?.firstOrNull() as? javax.mail.internet.InternetAddress)?.address ?: ""
             val message = MailMessage(
                 accountId = account.id,
-                folderId = 0,  // 新邮件通知时 folderId 非必需
+                folderId = 0,
                 uid = 0,
                 subject = mimeMsg.subject,
                 fromAddress = fromAddr,
@@ -169,13 +173,11 @@ class MailSentinelService : Service() {
             val matchResults = applyRulesToMessage(message)
 
             if (matchResults.isNotEmpty()) {
-                // 4. 命中规则 → 发通知显示匹配结果
                 val subject = message.subject ?: "(无主题)"
                 val displayTexts = matchResults.joinToString("\n") { it.displayText }
                 showMatchNotification(subject, displayTexts, matchResults)
                 Timber.d("邮件「$subject」命中 ${matchResults.size} 条规则")
             } else {
-                // 未命中规则但仍有新邮件，发普通新邮件通知
                 val subject = message.subject ?: "(无主题)"
                 showNewMailNotification(subject, fromAddr)
             }
@@ -186,32 +188,31 @@ class MailSentinelService : Service() {
 
     /**
      * 应用规则并返回带匹配文本的结果
-     * 在 Service 中直接调用（避免循环依赖）
      */
-    private suspend fun applyRulesToMessage(message: MailMessage): List<com.mailsentinel.domain.repository.RuleMatchResult> {
-        // 由于 Hilt 在 Service 中注入 ForwardRepository 可能有循环依赖问题，
-        // 这里手动创建 RegexMatcher 进行匹配
-        val matcher = com.mailsentinel.core.regex.RegexMatcher()
+    private suspend fun applyRulesToMessage(message: MailMessage): List<RuleMatchResult> {
+        val matcher = RegexMatcher()
         val rules = getActiveRulesForAccount(message.accountId)
-        val results = mutableListOf<com.mailsentinel.domain.repository.RuleMatchResult>()
+        val results = mutableListOf<RuleMatchResult>()
 
         for (rule in rules) {
             val targetText = when (rule.regexTarget) {
-                com.mailsentinel.domain.model.RegexTarget.SUBJECT -> message.subject ?: ""
-                com.mailsentinel.domain.model.RegexTarget.BODY -> message.bodyText ?: message.previewText ?: ""
-                com.mailsentinel.domain.model.RegexTarget.FROM -> message.fromAddress
-                com.mailsentinel.domain.model.RegexTarget.ANY ->
+                RegexTarget.SUBJECT -> message.subject ?: ""
+                RegexTarget.BODY -> message.bodyText ?: message.previewText ?: ""
+                RegexTarget.FROM -> message.fromAddress
+                RegexTarget.ANY ->
                     "${message.subject ?: ""} ${message.bodyText ?: ""} ${message.fromAddress}"
             }
 
             if (rule.regexPattern != null) {
                 val match = matcher.findFirstMatch(rule.regexPattern, targetText)
                 if (match != null) {
-                    results.add(com.mailsentinel.domain.repository.RuleMatchResult(
-                        rule = rule,
-                        matchedText = match.matchedText,
-                        captureGroups = match.captureGroups
-                    ))
+                    results.add(
+                        RuleMatchResult(
+                            rule = rule,
+                            matchedText = match.matchedText,
+                            captureGroups = match.captureGroups
+                        )
+                    )
                 }
             }
         }
@@ -221,36 +222,20 @@ class MailSentinelService : Service() {
     /**
      * 获取账户的活跃规则列表
      */
-    private suspend fun getActiveRulesForAccount(accountId: Long): List<com.mailsentinel.domain.model.ForwardRule> {
-        // 直接查询数据库获取规则
+    private suspend fun getActiveRulesForAccount(accountId: Long): List<ForwardRule> {
         return try {
-            val db = com.mailsentinel.core.database.MailSentinelDatabase.getInstance(applicationContext)
-            db.forwardRuleDao().getActiveByAccount(accountId).map { entity ->
-                com.mailsentinel.domain.model.ForwardRule(
-                    id = entity.id,
-                    accountId = entity.accountId,
-                    name = entity.name,
-                    regexPattern = entity.regexPattern,
-                    regexTarget = com.mailsentinel.domain.model.RegexTarget.valueOf(entity.regexTarget.uppercase()),
-                    jsScript = entity.jsScript,
-                    targetAddress = entity.targetAddress,
-                    includeOcr = entity.includeOcr,
-                    isActive = entity.isActive,
-                    priority = entity.priority,
-                    createdAt = entity.createdAt
-                )
-            }
+            forwardRepository.getActiveRules(accountId)
         } catch (_: Exception) { emptyList() }
     }
 
     /**
-     * 显示命中规则的通知 — 含复制按钮，点击即可复制匹配结果
+     * 显示命中规则的通知 — 点击即复制匹配结果，无跳转
      */
-    private fun showMatchNotification(subject: String, matchedText: String, results: List<com.mailsentinel.domain.repository.RuleMatchResult>) {
+    private fun showMatchNotification(subject: String, matchedText: String, results: List<RuleMatchResult>) {
         val notificationId = notificationIdCounter.getAndIncrement()
-        val primaryText = results.first().displayText  // 主要匹配结果
+        val primaryText = results.first().displayText
 
-        // 复制按钮 PendingIntent
+        // 复制按钮 PendingIntent（ACTION=COPY_MATCHED_TEXT 的 Broadcast）
         val copyIntent = Intent(this, CopyActionReceiver::class.java).apply {
             action = CopyActionReceiver.ACTION_COPY_MATCHED_TEXT
             putExtra(CopyActionReceiver.EXTRA_COPY_TEXT, primaryText)
@@ -261,7 +246,7 @@ class MailSentinelService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 通知主体点击也执行复制（用户核心需求：点击即复制）
+        // 通知主体点击也执行复制（用户核心需求：点击即复制，无跳转 Activity）
         val clickCopyIntent = Intent(this, CopyActionReceiver::class.java).apply {
             action = CopyActionReceiver.ACTION_COPY_MATCHED_TEXT
             putExtra(CopyActionReceiver.EXTRA_COPY_TEXT, primaryText)
@@ -287,9 +272,9 @@ class MailSentinelService : Service() {
             ))
             .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(false)  // 由 Receiver 取消
-            .setContentIntent(clickCopyPendingIntent)  // 点击通知=复制
-            .addAction(android.R.drawable.ic_menu_save, "复制结果", copyPendingIntent)  // 按钮=复制
+            .setAutoCancel(false)
+            .setContentIntent(clickCopyPendingIntent)
+            .addAction(android.R.drawable.ic_menu_save, "复制结果", copyPendingIntent)
             .build()
 
         val manager = getSystemService(NotificationManager::class.java)
@@ -317,7 +302,6 @@ class MailSentinelService : Service() {
     private fun createNotificationChannels() {
         val manager = getSystemService(NotificationManager::class.java)
 
-        // 前台服务常驻通道（低优先级）
         val serviceChannel = NotificationChannel(
             CHANNEL_ID,
             "邮件监听服务",
@@ -327,7 +311,6 @@ class MailSentinelService : Service() {
         }
         manager.createNotificationChannel(serviceChannel)
 
-        // 新邮件/匹配通知通道（高优先级，有声音和弹窗）
         val mailChannel = NotificationChannel(
             CHANNEL_ID_MAIL,
             "新邮件通知",

@@ -28,6 +28,8 @@ data class ForwardRuleEntity(
     val targetAddress: String,
     @ColumnInfo(name = "include_ocr")
     val includeOcr: Boolean = false,
+    @ColumnInfo(name = "action_type")
+    val actionType: String = "forward",  // forward/copy/notify
     @ColumnInfo(name = "is_active")
     val isActive: Boolean = true,
     val priority: Int = 0,

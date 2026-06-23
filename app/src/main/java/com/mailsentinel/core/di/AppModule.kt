@@ -23,7 +23,8 @@ object AppModule {
             context,
             MailSentinelDatabase::class.java,
             "mailsentinel.db"
-        ).build()
+        ).addMigrations(MailSentinelDatabase.MIGRATION_1_2)
+         .build()
     }
     
     @Provides

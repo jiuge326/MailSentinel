@@ -83,26 +83,27 @@ class MailRepositoryImpl @Inject constructor(
                                 else -> folderName
                             },
                             unreadCount = 0,
-                            totalCount = 0
+                            messageCount = 0
                         )
                     )
                 }
 
                 val messageEntities = messages.mapNotNull { mimeMsg ->
                     try {
-                        val (parsedBody, attachments) = mimeParser.parseMessage(mimeMsg as jakarta.mail.internet.MimeMessage)
-                            ?: return@mapNotNull null
+                        val parsed = mimeParser.parseMessage(mimeMsg as javax.mail.internet.MimeMessage)
+                        val parsedBody = parsed.first ?: return@mapNotNull null
+                        val attachments = parsed.second
 
                         com.mailsentinel.core.database.entity.MessageEntity(
                             accountId = accountId,
                             folderId = actualFolderId,
-                            uid = (mimeMsg as? com.sun.mail.imap.IMAPMessage)?.UID ?: mimeMsg.messageNumber.toLong(),
+                            uid = mimeMsg.messageNumber.toLong(),
                             messageIdHeader = mimeMsg.messageID,
                             subject = mimeMsg.subject,
-                            fromAddress = (mimeMsg.from?.firstOrNull() as? jakarta.mail.internet.InternetAddress)?.address ?: "",
-                            fromName = (mimeMsg.from?.firstOrNull() as? jakarta.mail.internet.InternetAddress)?.personal,
-                            toAddresses = mimeMsg.getRecipients(jakarta.mail.Message.RecipientType.TO)
-                                ?.map { (it as? jakarta.mail.internet.InternetAddress)?.address.toString() }
+                            fromAddress = (mimeMsg.from?.firstOrNull() as? javax.mail.internet.InternetAddress)?.address ?: "",
+                            fromName = (mimeMsg.from?.firstOrNull() as? javax.mail.internet.InternetAddress)?.personal,
+                            toAddresses = mimeMsg.getRecipients(javax.mail.Message.RecipientType.TO)
+                                ?.map { (it as? javax.mail.internet.InternetAddress)?.address.toString() }
                                 ?.joinToString(",") ?: "",
                             receivedDate = mimeMsg.receivedDate?.time ?: System.currentTimeMillis(),
                             sentDate = mimeMsg.sentDate?.time,

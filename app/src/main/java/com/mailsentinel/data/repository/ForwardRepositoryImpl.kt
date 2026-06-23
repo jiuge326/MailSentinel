@@ -4,6 +4,7 @@ import com.mailsentinel.core.database.dao.ForwardRuleDao
 import com.mailsentinel.core.regex.RegexMatcher
 import com.mailsentinel.domain.model.*
 import com.mailsentinel.domain.repository.ForwardRepository
+import com.mailsentinel.domain.repository.RuleMatchResult
 import javax.inject.Inject
 
 class ForwardRepositoryImpl @Inject constructor(
@@ -20,6 +21,7 @@ class ForwardRepositoryImpl @Inject constructor(
             jsScript = rule.jsScript,
             targetAddress = rule.targetAddress,
             includeOcr = rule.includeOcr,
+            actionType = rule.actionType.name.lowercase(),
             isActive = rule.isActive,
             priority = rule.priority,
             createdAt = rule.createdAt
@@ -37,6 +39,7 @@ class ForwardRepositoryImpl @Inject constructor(
             jsScript = rule.jsScript,
             targetAddress = rule.targetAddress,
             includeOcr = rule.includeOcr,
+            actionType = rule.actionType.name.lowercase(),
             isActive = rule.isActive,
             priority = rule.priority
         )
@@ -59,6 +62,11 @@ class ForwardRepositoryImpl @Inject constructor(
                     jsScript = entity.jsScript,
                     targetAddress = entity.targetAddress,
                     includeOcr = entity.includeOcr,
+                    actionType = when (entity.actionType.lowercase()) {
+                        "copy" -> RuleAction.COPY
+                        "notify" -> RuleAction.NOTIFY
+                        else -> RuleAction.FORWARD
+                    },
                     isActive = entity.isActive,
                     priority = entity.priority,
                     createdAt = entity.createdAt
