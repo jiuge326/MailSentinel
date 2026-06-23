@@ -7,6 +7,7 @@ import jakarta.mail.event.MessageCountEvent
 import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeMessage
 import java.util.Properties
+import javax.net.ssl.SSLSocketFactory
 import com.sun.mail.imap.IMAPFolder
 import com.sun.mail.imap.IMAPStore
 import kotlinx.coroutines.channels.awaitClose
@@ -25,9 +26,15 @@ class ImapClient {
             put("mail.imaps.auth", "true")
             put("mail.imaps.timeout", "30000")
             put("mail.imaps.connectiontimeout", "30000")
-            // 信任所有证书（用户可选择）
+            // SSL 信任配置
             put("mail.imaps.ssl.trust", "*")
             put("mail.imaps.ssl.checkserveridentity", "false")
+            put("mail.imaps.ssl.socketfactory.class", "javax.net.ssl.SSLSocketFactory")
+            put("mail.imaps.ssl.socketfactory.fallback", "false")
+            // 禁用 STARTTLS（QQ邮箱等国内邮箱使用直接SSL，不支持STARTTLS升级）
+            put("mail.imaps.starttls.enable", "false")
+            // 认证机制：优先PLAIN（兼容QQ邮箱授权码登录）
+            put("mail.imaps.auth.mechanisms", "PLAIN LOGIN")
         }
         
         val session = Session.getInstance(props, null)

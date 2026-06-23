@@ -3,6 +3,7 @@ package com.mailsentinel.ui.screen.main
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -12,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import com.mailsentinel.R
 import com.mailsentinel.ui.screen.inbox.InboxScreen
+import com.mailsentinel.ui.screen.rules.RulesScreen
 import com.mailsentinel.ui.screen.settings.SettingsScreen
 import com.mailsentinel.ui.screen.status.AccountStatusScreen
 
@@ -40,6 +42,12 @@ fun MainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
+                    icon = { Icon(Icons.Default.List, contentDescription = stringResource(R.string.rules)) },
+                    label = { Text(stringResource(R.string.rules)) }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
                     icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings)) },
                     label = { Text(stringResource(R.string.settings)) }
                 )
@@ -54,13 +62,14 @@ fun MainScreen(
             when (selectedTab) {
                 0 -> InboxScreen(
                     onNavigateToStatus = { selectedTab = 1 },
-                    onNavigateToSettings = { selectedTab = 2 }
+                    onNavigateToSettings = { selectedTab = 3 }
                 )
                 1 -> AccountStatusScreen(
                     onNavigateBack = { selectedTab = 0 },
                     onNavigateToAddAccount = { navController.navigate("add_account") }
                 )
-                2 -> SettingsScreen(
+                2 -> RulesScreen()
+                3 -> SettingsScreen(
                     onNavigateBack = { selectedTab = 0 }
                 )
             }

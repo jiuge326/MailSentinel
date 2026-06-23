@@ -7,6 +7,7 @@
     <string name="add_account">添加账户</string>
     <string name="ocr_settings">OCR 设置</string>
     <string name="forward_rules">转发规则</string>
+    <string name="rules">规则</string>
     <string name="email_address">邮箱地址</string>
     <string name="password">密码</string>
     <string name="imap_server">IMAP 服务器</string>

@@ -8,7 +8,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -37,6 +39,7 @@ fun AddAccountScreen(
             value = uiState.displayName,
             onValueChange = { viewModel.updateField("displayName", it) },
             label = { Text("显示名称") },
+            textStyle = TextStyle(color = Color.Black),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -44,6 +47,7 @@ fun AddAccountScreen(
             value = uiState.emailAddress,
             onValueChange = { viewModel.updateField("emailAddress", it) },
             label = { Text(stringResource(R.string.email_address)) },
+            textStyle = TextStyle(color = Color.Black),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth()
         )
@@ -52,6 +56,7 @@ fun AddAccountScreen(
             value = uiState.password,
             onValueChange = { viewModel.updateField("password", it) },
             label = { Text(stringResource(R.string.password)) },
+            textStyle = TextStyle(color = Color.Black),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth()
         )
@@ -60,6 +65,7 @@ fun AddAccountScreen(
             value = uiState.imapHost,
             onValueChange = { viewModel.updateField("imapHost", it) },
             label = { Text(stringResource(R.string.imap_server)) },
+            textStyle = TextStyle(color = Color.Black),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -67,6 +73,7 @@ fun AddAccountScreen(
             value = uiState.imapPort,
             onValueChange = { viewModel.updateField("imapPort", it) },
             label = { Text(stringResource(R.string.imap_port)) },
+            textStyle = TextStyle(color = Color.Black),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
@@ -75,6 +82,7 @@ fun AddAccountScreen(
             value = uiState.smtpHost,
             onValueChange = { viewModel.updateField("smtpHost", it) },
             label = { Text(stringResource(R.string.smtp_server)) },
+            textStyle = TextStyle(color = Color.Black),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -82,6 +90,7 @@ fun AddAccountScreen(
             value = uiState.smtpPort,
             onValueChange = { viewModel.updateField("smtpPort", it) },
             label = { Text(stringResource(R.string.smtp_port)) },
+            textStyle = TextStyle(color = Color.Black),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
