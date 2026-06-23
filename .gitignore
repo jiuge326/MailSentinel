@@ -1,0 +1,22 @@
+# 构建产物
+app/build/
+build/
+.gradle/
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# APK（大文件）
+*.apk
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kotlin
+*.kotlin_module
+
+# Room schema
+schemas/
