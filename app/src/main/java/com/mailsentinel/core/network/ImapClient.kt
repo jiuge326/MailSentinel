@@ -4,10 +4,7 @@ import com.mailsentinel.domain.model.Account
 import jakarta.mail.*
 import jakarta.mail.event.MessageCountAdapter
 import jakarta.mail.event.MessageCountEvent
-import jakarta.mail.internet.InternetAddress
-import jakarta.mail.internet.MimeMessage
 import java.util.Properties
-import javax.net.ssl.SSLSocketFactory
 import com.sun.mail.imap.IMAPFolder
 import com.sun.mail.imap.IMAPStore
 import kotlinx.coroutines.channels.awaitClose
@@ -15,60 +12,77 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
 class ImapClient {
-    
+
     fun connect(account: Account, password: String): Result<IMAPStore> {
         return try {
-        val props = Properties().apply {
-            put("mail.store.protocol", "imaps")
-            put("mail.imaps.host", account.imapHost)
-            put("mail.imaps.port", account.imapPort.toString())
-            put("mail.imaps.ssl.enable", account.useSsl.toString())
-            put("mail.imaps.auth", "true")
-            put("mail.imaps.timeout", "30000")
-            put("mail.imaps.connectiontimeout", "30000")
-            // SSL 信任配置
-            put("mail.imaps.ssl.trust", "*")
-            put("mail.imaps.ssl.checkserveridentity", "false")
-            put("mail.imaps.ssl.socketfactory.class", "javax.net.ssl.SSLSocketFactory")
-            put("mail.imaps.ssl.socketfactory.fallback", "false")
-            // 禁用 STARTTLS（QQ邮箱等国内邮箱使用直接SSL，不支持STARTTLS升级）
-            put("mail.imaps.starttls.enable", "false")
-            // 认证机制：优先PLAIN（兼容QQ邮箱授权码登录）
-            put("mail.imaps.auth.mechanisms", "PLAIN LOGIN")
-        }
-        
-        val session = Session.getInstance(props, null)
-        val store = session.getStore("imaps") as IMAPStore
-        
-        if (account.tokenType == "oauth2") {
-            // OAuth2 认证
-            // 需要在 authenticate 前设置 token
+            val props = Properties().apply {
+                put("mail.store.protocol", "imaps")
+                put("mail.imaps.host", account.imapHost)
+                put("mail.imaps.port", account.imapPort.toString())
+                put("mail.imaps.ssl.enable", "true")
+                put("mail.imaps.auth", "true")
+                put("mail.imaps.timeout", "30000")
+                put("mail.imaps.connectiontimeout", "30000")
+                // 信任所有主机（QQ邮箱等国内邮箱需要）
+                put("mail.imaps.ssl.trust", "*")
+                // QQ邮箱 debug：开启 Session 调试日志
+                put("mail.imaps.debug", "true")
+            }
+
+            val session = Session.getInstance(props, null)
+            // 开启调试输出到 Logcat
+            session.setDebug(true)
+
+            val store = session.getStore("imaps") as IMAPStore
             store.connect(account.imapHost, account.emailAddress, password)
-        } else {
-            store.connect(account.imapHost, account.emailAddress, password)
-        }
-        
-        Result.success(store)
+
+            Result.success(store)
         } catch (e: Exception) {
-            Result.failure(e)
+            // 保留完整异常链信息用于诊断
+            val detailedMessage = buildErrorMessage(e)
+            Result.failure(Exception(detailedMessage, e))
         }
     }
-    
+
+    /**
+     * 构建详细的错误信息，包含异常类型、消息和根因
+     */
+    private fun buildErrorMessage(e: Exception): String {
+        val className = e.javaClass.simpleName
+        val message = e.message ?: "无详细信息"
+        val cause = e.cause?.let { "${it.javaClass.simpleName}: ${it.message}" } ?: ""
+        
+        return when {
+            className.contains("AuthenticationFailed", true) ->
+                "认证失败：邮箱服务器拒绝了登录。QQ邮箱请确保使用授权码而非密码（错误详情: $message）"
+            className.contains("SSLHandshake", true) ->
+                "SSL握手失败：无法建立安全连接（错误详情: $message）"
+            className.contains("SocketTimeout", true) ->
+                "连接超时：服务器未在30秒内响应（错误详情: $message）"
+            className.contains("Connect", true) ->
+                "网络连接失败：无法到达服务器（错误详情: $message）"
+            className.contains("FolderClosed", true) ->
+                "连接被服务器关闭（错误详情: $message）"
+            else ->
+                "${className}: $message${if (cause.isNotBlank()) " [根因: $cause]" else ""}"
+        }
+    }
+
     fun observeNewMessages(account: Account, password: String): Flow<jakarta.mail.Message> = callbackFlow {
         var store: IMAPStore? = null
         var folder: IMAPFolder? = null
-        
+
         try {
             val connectResult = connect(account, password)
             if (connectResult.isFailure) {
-                close(connectResult.exceptionOrNull())
+                close()
                 return@callbackFlow
             }
-            
+
             store = connectResult.getOrNull()
             folder = store?.getFolder("INBOX") as? IMAPFolder
             folder?.open(IMAPFolder.READ_ONLY)
-            
+
             folder?.addMessageCountListener(object : MessageCountAdapter() {
                 override fun messagesAdded(e: MessageCountEvent) {
                     e.messages.forEach { message ->
@@ -76,21 +90,27 @@ class ImapClient {
                     }
                 }
             })
-            
+
             // 保持连接活跃以接收新消息
             while (folder?.isOpen == true) {
                 try {
                     folder.idle()
                 } catch (e: Exception) {
-                    // IDLE 超时或连接中断，尝试重新连接
-                    break
+                    // IDLE 超时或连接中断，尝试重新进入 IDLE
+                    try {
+                        if (folder?.isOpen == true) {
+                            folder.idle()
+                        }
+                    } catch (_: Exception) {
+                        break
+                    }
                 }
             }
-            
+
         } catch (e: Exception) {
-            close(e)
+            close()
         }
-        
+
         awaitClose {
             try {
                 folder?.close(false)
@@ -98,34 +118,35 @@ class ImapClient {
             } catch (_: Exception) {}
         }
     }
-    
+
     fun fetchMessages(account: Account, password: String, folderName: String = "INBOX", limit: Int = 50): Result<List<jakarta.mail.Message>> {
         return try {
             val storeResult = connect(account, password)
-        if (storeResult.isFailure) {
-            return Result.failure(storeResult.exceptionOrNull() ?: Exception("连接失败"))
+            if (storeResult.isFailure) {
+                return Result.failure(storeResult.exceptionOrNull() ?: Exception("连接失败"))
+            }
+
+            val store = storeResult.getOrNull()
+            val folder = store?.getFolder(folderName)
+            folder?.open(IMAPFolder.READ_ONLY)
+
+            val messages = folder?.messages ?: emptyArray()
+            val end = messages.size
+            val start = maxOf(1, end - limit + 1)
+
+            val result = if (start <= end) {
+                folder?.getMessages(start, end)?.toList() ?: emptyList()
+            } else {
+                emptyList()
+            }
+
+            folder?.close(false)
+            store?.close()
+
+            Result.success(result)
+        } catch (e: Exception) {
+            val detailedMessage = buildErrorMessage(e)
+            Result.failure(Exception(detailedMessage, e))
         }
-        
-        val store = storeResult.getOrNull()
-        val folder = store?.getFolder(folderName)
-        folder?.open(IMAPFolder.READ_ONLY)
-        
-        val messages = folder?.messages ?: emptyArray()
-        val end = messages.size
-        val start = maxOf(1, end - limit + 1)
-        
-        val result = if (start <= end) {
-            folder?.getMessages(start, end)?.toList() ?: emptyList()
-        } else {
-            emptyList()
-        }
-        
-        folder?.close(false)
-        store?.close()
-        
-        Result.success(result)
-    } catch (e: Exception) {
-        Result.failure(e)
-    }
     }
 }
