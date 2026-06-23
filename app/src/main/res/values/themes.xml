@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MailSentinel" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- 基础主题，实际由 Compose Material3 控制 -->
+    </style>
+</resources>
