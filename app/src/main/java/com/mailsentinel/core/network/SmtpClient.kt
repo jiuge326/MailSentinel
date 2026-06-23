@@ -1,9 +1,9 @@
 package com.mailsentinel.core.network
 
 import com.mailsentinel.domain.model.Account
-import jakarta.mail.*
-import jakarta.mail.internet.InternetAddress
-import jakarta.mail.internet.MimeMessage
+import javax.mail.*
+import javax.mail.internet.InternetAddress
+import javax.mail.internet.MimeMessage
 import java.util.Properties
 
 class SmtpClient {
@@ -20,11 +20,18 @@ class SmtpClient {
             put("mail.smtp.host", account.smtpHost)
             put("mail.smtp.port", account.smtpPort.toString())
             put("mail.smtp.auth", "true")
+            put("mail.smtp.auth.mechanisms", "PLAIN")
+            put("mail.smtp.sasl.enable", "false")
             if (account.useSsl) {
                 put("mail.smtp.ssl.enable", "true")
                 put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                put("mail.smtp.socketFactory.fallback", "false")
+                put("mail.smtp.socketFactory.port", account.smtpPort.toString())
+                put("mail.smtp.ssl.trust", "*")
             }
-            put("mail.smtp.timeout", "30000")
+            put("mail.smtp.timeout", "20000")
+            put("mail.smtp.connectiontimeout", "20000")
+            put("mail.smtp.debug", "true")
         }
         
         val session = Session.getInstance(props, object : Authenticator() {

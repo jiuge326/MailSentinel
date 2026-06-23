@@ -85,8 +85,9 @@ dependencies {
     // 自行实现 GlassCard 组件，无需外部库
 
     // ===== Jakarta Mail (IMAP/SMTP) =====
-    implementation("com.sun.mail:jakarta.mail:2.0.1")
-    implementation("com.sun.activation:jakarta.activation:2.0.1")
+    // 使用 Android 专用版本（javax.mail 包名，兼容 Android）
+    implementation("com.sun.mail:android-mail:1.6.7")
+    // android-activation:1.6.7 会由 android-mail 自动引入，无需手动添加
 
     // ===== Jsoup (HTML 解析) =====
     implementation("org.jsoup:jsoup:1.18.1")

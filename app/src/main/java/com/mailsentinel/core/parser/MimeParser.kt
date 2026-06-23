@@ -1,10 +1,10 @@
 package com.mailsentinel.core.parser
 
 import com.mailsentinel.domain.model.ParsedBody
-import jakarta.mail.BodyPart
-import jakarta.mail.Multipart
-import jakarta.mail.Part
-import jakarta.mail.internet.MimeMessage
+import javax.mail.BodyPart
+import javax.mail.Multipart
+import javax.mail.Part
+import javax.mail.internet.MimeMessage
 import com.mailsentinel.core.parser.EmailBodyParser
 
 class MimeParser(private val bodyParser: EmailBodyParser = EmailBodyParser()) {

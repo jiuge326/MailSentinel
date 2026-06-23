@@ -1,9 +1,9 @@
 # MailSentinel ProGuard Rules
 
-# ===== Jakarta Mail =====
+# ===== JavaMail (Android Mail) =====
 -keep class com.sun.mail.** { *; }
--keep class jakarta.mail.** { *; }
--keep class jakarta.activation.** { *; }
+-keep class javax.mail.** { *; }
+-keep class javax.activation.** { *; }
 
 # ===== ML Kit =====
 -keep class com.google.mlkit.** { *; }

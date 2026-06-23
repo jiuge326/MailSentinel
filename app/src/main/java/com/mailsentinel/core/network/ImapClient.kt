@@ -1,9 +1,9 @@
 package com.mailsentinel.core.network
 
 import com.mailsentinel.domain.model.Account
-import jakarta.mail.*
-import jakarta.mail.event.MessageCountAdapter
-import jakarta.mail.event.MessageCountEvent
+import javax.mail.*
+import javax.mail.event.MessageCountAdapter
+import javax.mail.event.MessageCountEvent
 import java.util.Properties
 import com.sun.mail.imap.IMAPFolder
 import com.sun.mail.imap.IMAPStore
@@ -19,26 +19,33 @@ class ImapClient {
                 put("mail.store.protocol", "imaps")
                 put("mail.imaps.host", account.imapHost)
                 put("mail.imaps.port", account.imapPort.toString())
+                // SSL 配置
                 put("mail.imaps.ssl.enable", "true")
-                put("mail.imaps.auth", "true")
-                put("mail.imaps.timeout", "30000")
-                put("mail.imaps.connectiontimeout", "30000")
-                // 信任所有主机（QQ邮箱等国内邮箱需要）
                 put("mail.imaps.ssl.trust", "*")
-                // QQ邮箱 debug：开启 Session 调试日志
+                // 关键：指定 SSL Socket Factory（Android 兼容）
+                put("mail.imaps.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                put("mail.imaps.socketFactory.fallback", "false")
+                put("mail.imaps.socketFactory.port", account.imapPort.toString())
+                // 认证配置（QQ 邮箱需要 PLAIN 机制）
+                put("mail.imaps.auth", "true")
+                put("mail.imaps.auth.mechanisms", "PLAIN")
+                put("mail.imaps.sasl.enable", "false")
+                // 超时设置
+                put("mail.imaps.timeout", "20000")
+                put("mail.imaps.connectiontimeout", "20000")
+                // 调试
                 put("mail.imaps.debug", "true")
             }
 
             val session = Session.getInstance(props, null)
-            // 开启调试输出到 Logcat
             session.setDebug(true)
 
             val store = session.getStore("imaps") as IMAPStore
+            // 使用 emailAddress 作为用户名（QQ 邮箱要求完整地址）
             store.connect(account.imapHost, account.emailAddress, password)
 
             Result.success(store)
         } catch (e: Exception) {
-            // 保留完整异常链信息用于诊断
             val detailedMessage = buildErrorMessage(e)
             Result.failure(Exception(detailedMessage, e))
         }
@@ -68,7 +75,7 @@ class ImapClient {
         }
     }
 
-    fun observeNewMessages(account: Account, password: String): Flow<jakarta.mail.Message> = callbackFlow {
+    fun observeNewMessages(account: Account, password: String): Flow<javax.mail.Message> = callbackFlow {
         var store: IMAPStore? = null
         var folder: IMAPFolder? = null
 
@@ -119,7 +126,7 @@ class ImapClient {
         }
     }
 
-    fun fetchMessages(account: Account, password: String, folderName: String = "INBOX", limit: Int = 50): Result<List<jakarta.mail.Message>> {
+    fun fetchMessages(account: Account, password: String, folderName: String = "INBOX", limit: Int = 50): Result<List<javax.mail.Message>> {
         return try {
             val storeResult = connect(account, password)
             if (storeResult.isFailure) {
