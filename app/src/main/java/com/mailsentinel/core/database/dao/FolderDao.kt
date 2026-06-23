@@ -7,10 +7,16 @@ import com.mailsentinel.core.database.entity.FolderEntity
 interface FolderDao {
     @Query("SELECT * FROM folders WHERE account_id = :accountId")
     suspend fun getByAccount(accountId: Long): List<FolderEntity>
-    
+
     @Query("SELECT * FROM folders WHERE account_id = :accountId AND full_name = :fullName")
     suspend fun getByFullName(accountId: Long, fullName: String): FolderEntity?
-    
+
+    @Query("SELECT * FROM folders WHERE account_id = :accountId AND name = :name")
+    suspend fun getByAccountAndName(accountId: Long, name: String): FolderEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(folder: FolderEntity): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(folders: List<FolderEntity>)
     

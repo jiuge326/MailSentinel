@@ -54,6 +54,15 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- 通知栏复制结果接收器（点击通知不跳转，直接复制） -->
+        <receiver
+            android:name="com.mailsentinel.core.service.CopyActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.mailsentinel.action.COPY_MATCHED_TEXT" />
+            </intent-filter>
+        </receiver>
+
         <!-- WorkManager 初始化 -->
         <provider
             android:name="androidx.startup.InitializationProvider"

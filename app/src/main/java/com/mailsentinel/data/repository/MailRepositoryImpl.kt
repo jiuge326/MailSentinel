@@ -8,8 +8,10 @@ import com.mailsentinel.data.mapper.AccountMapper
 import com.mailsentinel.data.mapper.MessageMapper
 import com.mailsentinel.domain.model.*
 import com.mailsentinel.domain.repository.MailRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class MailRepositoryImpl @Inject constructor(
@@ -47,29 +49,84 @@ class MailRepositoryImpl @Inject constructor(
     } catch (_: Exception) { null }
 
     override suspend fun syncMessages(accountId: Long, folderName: String): Result<Unit> {
-        return try {
-            val account = getAccountById(accountId)
-            if (account == null) return Result.failure(Exception("账户不存在"))
+        return withContext(Dispatchers.IO) {
+            try {
+                val account = getAccountById(accountId)
+                if (account == null) return@withContext Result.failure(Exception("账户不存在"))
 
-            connectionStateManager.updateState(accountId, ConnectionState.CONNECTING)
-            accountDao.updateConnectionState(accountId, "connecting")
+                connectionStateManager.updateState(accountId, ConnectionState.CONNECTING)
+                accountDao.updateConnectionState(accountId, "connecting")
 
-            val result = imapClient.fetchMessages(account, folderName)
-            if (result.isFailure) {
-                val error = result.exceptionOrNull()?.message ?: "同步失败"
+                val result = imapClient.fetchMessages(account, folderName)
+                if (result.isFailure) {
+                    val error = result.exceptionOrNull()?.message ?: "同步失败"
+                    connectionStateManager.updateState(accountId, ConnectionState.ERROR)
+                    accountDao.updateConnectionState(accountId, "error", error)
+                    return@withContext Result.failure(result.exceptionOrNull()!!)
+                }
+
+                // 解析并入库邮件（含正文）
+                val messages = result.getOrNull() ?: emptyList()
+                val folderEntity = folderDao.getByFullName(accountId, folderName)
+                val actualFolderId = if (folderEntity != null) {
+                    folderEntity.id
+                } else {
+                    folderDao.insert(
+                        com.mailsentinel.core.database.entity.FolderEntity(
+                            accountId = accountId,
+                            fullName = folderName,
+                            displayName = when (folderName.uppercase()) {
+                                "INBOX" -> "收件箱"
+                                "SENT" -> "已发送"
+                                "DRAFTS" -> "草稿箱"
+                                "TRASH" -> "已删除"
+                                else -> folderName
+                            },
+                            unreadCount = 0,
+                            totalCount = 0
+                        )
+                    )
+                }
+
+                val messageEntities = messages.mapNotNull { mimeMsg ->
+                    try {
+                        val (parsedBody, attachments) = mimeParser.parseMessage(mimeMsg as jakarta.mail.internet.MimeMessage)
+                            ?: return@mapNotNull null
+
+                        com.mailsentinel.core.database.entity.MessageEntity(
+                            accountId = accountId,
+                            folderId = actualFolderId,
+                            uid = (mimeMsg as? com.sun.mail.imap.IMAPMessage)?.UID ?: mimeMsg.messageNumber.toLong(),
+                            messageIdHeader = mimeMsg.messageID,
+                            subject = mimeMsg.subject,
+                            fromAddress = (mimeMsg.from?.firstOrNull() as? jakarta.mail.internet.InternetAddress)?.address ?: "",
+                            fromName = (mimeMsg.from?.firstOrNull() as? jakarta.mail.internet.InternetAddress)?.personal,
+                            toAddresses = mimeMsg.getRecipients(jakarta.mail.Message.RecipientType.TO)
+                                ?.map { (it as? jakarta.mail.internet.InternetAddress)?.address.toString() }
+                                ?.joinToString(",") ?: "",
+                            receivedDate = mimeMsg.receivedDate?.time ?: System.currentTimeMillis(),
+                            sentDate = mimeMsg.sentDate?.time,
+                            previewText = parsedBody.plainText.take(200),
+                            bodyHtml = parsedBody.preview,
+                            bodyText = parsedBody.plainText,
+                            hasAttachments = attachments.isNotEmpty(),
+                            size = mimeMsg.size
+                        )
+                    } catch (_: Exception) { null }
+                }
+
+                if (messageEntities.isNotEmpty()) {
+                    messageDao.insertAll(messageEntities)
+                }
+
+                connectionStateManager.updateState(accountId, ConnectionState.CONNECTED)
+                accountDao.updateConnectionState(accountId, "connected")
+                Result.success(Unit)
+            } catch (e: Exception) {
                 connectionStateManager.updateState(accountId, ConnectionState.ERROR)
-                accountDao.updateConnectionState(accountId, "error", error)
-                return Result.failure(result.exceptionOrNull()!!)
+                accountDao.updateConnectionState(accountId, "error", e.message)
+                Result.failure(e)
             }
-
-            connectionStateManager.updateState(accountId, ConnectionState.CONNECTED)
-            accountDao.updateConnectionState(accountId, "connected")
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            connectionStateManager.updateState(accountId, ConnectionState.ERROR)
-            accountDao.updateConnectionState(accountId, "error", e.message)
-            Result.failure(e)
         }
     }
 
@@ -102,13 +159,15 @@ class MailRepositoryImpl @Inject constructor(
     }
 
     override suspend fun testConnection(account: Account, password: String): Result<Unit> {
-        return try {
-            val result = imapClient.connect(account, password)
-            if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
-            result.getOrNull()?.close()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = imapClient.connect(account, password)
+                if (result.isFailure) return@withContext Result.failure(result.exceptionOrNull()!!)
+                result.getOrNull()?.close()
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
         }
     }
 

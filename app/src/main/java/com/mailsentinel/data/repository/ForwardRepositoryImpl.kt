@@ -93,4 +93,31 @@ class ForwardRepositoryImpl @Inject constructor(
 
         matchedRules
     } catch (_: Exception) { emptyList() }
+
+    override suspend fun applyRulesWithResult(message: MailMessage, accountId: Long): List<RuleMatchResult> = try {
+        val rules = getActiveRules(accountId)
+        val results = mutableListOf<RuleMatchResult>()
+
+        for (rule in rules) {
+            val targetText = when (rule.regexTarget) {
+                RegexTarget.SUBJECT -> message.subject ?: ""
+                RegexTarget.BODY -> message.bodyText ?: message.previewText ?: ""
+                RegexTarget.FROM -> message.fromAddress
+                RegexTarget.ANY -> "${message.subject ?: ""} ${message.bodyText ?: ""} ${message.fromAddress}"
+            }
+
+            if (rule.regexPattern != null) {
+                val matchResult = regexMatcher.findFirstMatch(rule.regexPattern, targetText)
+                if (matchResult != null) {
+                    results.add(RuleMatchResult(
+                        rule = rule,
+                        matchedText = matchResult.matchedText,
+                        captureGroups = matchResult.captureGroups
+                    ))
+                }
+            }
+        }
+
+        results
+    } catch (_: Exception) { emptyList() }
 }
