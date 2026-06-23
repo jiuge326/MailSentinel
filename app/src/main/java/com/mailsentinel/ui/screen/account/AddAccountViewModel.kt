@@ -116,15 +116,14 @@ class AddAccountViewModel @Inject constructor(
             try {
                 val account = buildAccount()
                 val accountId = mailRepository.addAccount(account)
-                // 保存密码到数据库（AccountEntity 有 password 字段）
                 if (accountId > 0) {
-                    val savedEntity = mailRepository.getAccountById(accountId)
-                    if (savedEntity != null) {
-                        // 更新密码到 AccountEntity
-                        mailRepository.updateAccountPassword(accountId, _uiState.value.password)
-                    }
+                    // 保存密码到数据库
+                    mailRepository.updateAccountPassword(accountId, _uiState.value.password)
+                    _uiState.value = _uiState.value.copy(isSaving = false, saved = true)
+                } else {
+                    // 保存失败
+                    _uiState.value = _uiState.value.copy(isSaving = false)
                 }
-                _uiState.value = _uiState.value.copy(isSaving = false, saved = true)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isSaving = false)
             }

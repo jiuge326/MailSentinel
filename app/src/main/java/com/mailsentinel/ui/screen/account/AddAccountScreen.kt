@@ -24,6 +24,13 @@ fun AddAccountScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    // 保存成功后自动返回
+    LaunchedEffect(uiState.saved) {
+        if (uiState.saved) {
+            onNavigateBack()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
