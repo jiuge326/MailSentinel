@@ -101,15 +101,23 @@ class MailRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun testConnection(account: Account): Result<Unit> {
+    override suspend fun testConnection(account: Account, password: String): Result<Unit> {
         return try {
-            val pwd = accountDao.getById(account.id)?.password ?: ""
-            val result = imapClient.connect(account, pwd)
+            val result = imapClient.connect(account, password)
             if (result.isFailure) return Result.failure(result.exceptionOrNull()!!)
             result.getOrNull()?.close()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    override suspend fun updateAccountPassword(accountId: Long, password: String) {
+        try {
+            val entity = accountDao.getById(accountId)
+            if (entity != null) {
+                accountDao.update(entity.copy(password = password))
+            }
+        } catch (_: Exception) {}
     }
 }

@@ -18,5 +18,6 @@ interface MailRepository {
     fun observeAccounts(): kotlinx.coroutines.flow.Flow<List<Account>>
     fun observeMessages(accountId: Long, folderId: Long): kotlinx.coroutines.flow.Flow<List<MailMessage>>
 
-    suspend fun testConnection(account: Account): Result<Unit>
+    suspend fun testConnection(account: Account, password: String): Result<Unit>
+    suspend fun updateAccountPassword(accountId: Long, password: String)
 }

@@ -55,11 +55,53 @@ fun AddAccountScreen(
         OutlinedTextField(
             value = uiState.password,
             onValueChange = { viewModel.updateField("password", it) },
-            label = { Text(stringResource(R.string.password)) },
+            label = { Text("密码/授权码") },
             textStyle = TextStyle(color = Color.Black),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth()
         )
+
+        // QQ邮箱授权码提示
+        if (uiState.imapHost.contains("qq.com")) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "QQ邮箱需要使用授权码而非密码",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFE65100)
+                    )
+                    Text(
+                        text = "请在 QQ邮箱 → 设置 → 账户 → POP3/IMAP/SMTP 中生成授权码",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFBF360C)
+                    )
+                }
+            }
+        }
+
+        // 163邮箱授权码提示
+        if (uiState.imapHost.contains("163.com")) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "163邮箱需要使用授权码而非密码",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFE65100)
+                    )
+                    Text(
+                        text = "请在 163邮箱 → 设置 → POP3/IMAP/SMTP 中开启并生成授权码",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFBF360C)
+                    )
+                }
+            }
+        }
 
         OutlinedTextField(
             value = uiState.imapHost,
@@ -156,11 +198,45 @@ fun AddAccountScreen(
             }
         }
 
+        // 连接测试结果 - 显示详细原因和解决方案
         if (uiState.testResult != null) {
-            Text(
-                text = if (uiState.connectionTested) "✓ 连接成功" else "✗ ${uiState.testResult}",
-                color = if (uiState.connectionTested) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-            )
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (uiState.connectionTested) 
+                        Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+                )
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    if (uiState.connectionTested) {
+                        Text(
+                            text = "✓ 连接成功",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color(0xFF2E7D32)
+                        )
+                    } else {
+                        Text(
+                            text = "✗ 连接失败",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color(0xFFC62828)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "原因：${uiState.testResult}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFFD32F2F)
+                        )
+                        if (uiState.errorSolution != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "解决方案：${uiState.errorSolution}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF5D4037)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

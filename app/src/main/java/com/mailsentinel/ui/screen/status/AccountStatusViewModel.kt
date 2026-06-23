@@ -7,6 +7,7 @@ import com.mailsentinel.domain.model.ConnectionError
 import com.mailsentinel.domain.model.ErrorType
 import com.mailsentinel.domain.model.ConnectionState
 import com.mailsentinel.domain.repository.MailRepository
+import com.mailsentinel.core.database.dao.AccountDao
 import com.mailsentinel.core.utils.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +24,8 @@ data class AccountStatusUiState(
 
 @HiltViewModel
 class AccountStatusViewModel @Inject constructor(
-    private val mailRepository: MailRepository
+    private val mailRepository: MailRepository,
+    private val accountDao: AccountDao
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AccountStatusUiState())
@@ -50,7 +52,8 @@ class AccountStatusViewModel @Inject constructor(
                 for (account in accounts) {
                     if (account.connectionState == ConnectionState.ERROR) {
                         try {
-                            val testResult = mailRepository.testConnection(account)
+                            val password = accountDao.getById(account.id)?.password ?: ""
+                            val testResult = mailRepository.testConnection(account, password)
                             if (testResult.isFailure) {
                                 errors[account.id] = NetworkUtils.diagnoseConnectionError(
                                     Exception(testResult.exceptionOrNull()?.message ?: "未知错误")
@@ -81,7 +84,8 @@ class AccountStatusViewModel @Inject constructor(
             try {
                 val account = mailRepository.getAccountById(accountId)
                 if (account != null) {
-                    mailRepository.testConnection(account)
+                    val password = accountDao.getById(accountId)?.password ?: ""
+                    mailRepository.testConnection(account, password)
                 }
                 loadAccounts()
             } catch (_: Exception) {}

@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mailsentinel.domain.model.Account
 import com.mailsentinel.domain.model.ConnectionState
+import com.mailsentinel.domain.model.ConnectionError
+import com.mailsentinel.domain.model.ErrorType
 import com.mailsentinel.domain.repository.MailRepository
+import com.mailsentinel.core.utils.NetworkUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +28,7 @@ data class AddAccountUiState(
     val isSaving: Boolean = false,
     val connectionTested: Boolean = false,
     val testResult: String? = null,
+    val errorSolution: String? = null,
     val saved: Boolean = false
 )
 
@@ -70,20 +74,37 @@ class AddAccountViewModel @Inject constructor(
 
     fun testConnection() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isTesting = true, testResult = null)
+            _uiState.value = _uiState.value.copy(isTesting = true, testResult = null, errorSolution = null)
             try {
                 val account = buildAccount()
-                val result = mailRepository.testConnection(account)
-                _uiState.value = _uiState.value.copy(
-                    isTesting = false,
-                    connectionTested = result.isSuccess,
-                    testResult = if (result.isSuccess) "连接成功" else result.exceptionOrNull()?.message ?: "连接失败"
-                )
+                val password = _uiState.value.password
+                val result = mailRepository.testConnection(account, password)
+                
+                if (result.isSuccess) {
+                    _uiState.value = _uiState.value.copy(
+                        isTesting = false,
+                        connectionTested = true,
+                        testResult = "连接成功",
+                        errorSolution = null
+                    )
+                } else {
+                    val throwable = result.exceptionOrNull()
+                    val exception = Exception(throwable?.message ?: "未知错误")
+                    val diagnosis = NetworkUtils.diagnoseConnectionError(exception)
+                    _uiState.value = _uiState.value.copy(
+                        isTesting = false,
+                        connectionTested = false,
+                        testResult = diagnosis.message,
+                        errorSolution = diagnosis.solution
+                    )
+                }
             } catch (e: Exception) {
+                val diagnosis = NetworkUtils.diagnoseConnectionError(e)
                 _uiState.value = _uiState.value.copy(
                     isTesting = false,
                     connectionTested = false,
-                    testResult = e.message ?: "测试失败"
+                    testResult = diagnosis.message,
+                    errorSolution = diagnosis.solution
                 )
             }
         }
@@ -94,7 +115,15 @@ class AddAccountViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isSaving = true)
             try {
                 val account = buildAccount()
-                mailRepository.addAccount(account)
+                val accountId = mailRepository.addAccount(account)
+                // 保存密码到数据库（AccountEntity 有 password 字段）
+                if (accountId > 0) {
+                    val savedEntity = mailRepository.getAccountById(accountId)
+                    if (savedEntity != null) {
+                        // 更新密码到 AccountEntity
+                        mailRepository.updateAccountPassword(accountId, _uiState.value.password)
+                    }
+                }
                 _uiState.value = _uiState.value.copy(isSaving = false, saved = true)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isSaving = false)
